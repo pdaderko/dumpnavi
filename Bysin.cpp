@@ -16,7 +16,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 #include "stdafx.h"
 
-/* DumpNAVI by bysin, guicide, and ryebrye
+/* DumpNAVI by bysin, guicide, ryebrye, and DogP
  *
  * Structs and code sniplets taken from Willem Jan Hengeveld <itsme@xs4all.nl>.
  * 
@@ -25,6 +25,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  *
  * ChangeLog:
+ *
+ * April 24, 2022 - DogP - Updated to support ROMOFFSET, needed to work with navi
+ *                         system binary (e.g. 09Touch.bin), plus minor tweaks
  *
  * Feb 2, 2011 -  ryebrye - Ported back to windows (ugh) to handle compressed modules 
  *		          ryebrye - Added 'updateModule' command  with the ability to update 
@@ -60,7 +63,7 @@ typedef signed long		S32, *PS32;
 #include <winnt.h>
 #include <Imagehlp.h>
 
-#define VERSION "1.3g2"
+#define VERSION "1.4"
 
 #if 0
 extern DWORD CEDecompress(LPBYTE BufIn, DWORD InSize, LPBYTE BufOut, DWORD OutSize, DWORD skip, DWORD n, DWORD blocksize);
@@ -316,9 +319,11 @@ U8 doscode[]= {
 
 U32 virtualpos=0,blocklen=0;
 fpos_t blockstartpos=0;
+U32 addroffs = 0; //ROMOFFSET
 
 U32 VirtualSeek(U32 addr) 
 {
+	addr += addroffs;
 	fsetpos(f,&blockstart);
 	while(!feof(f)) {
 		struct _blockhdr b;
@@ -556,8 +561,7 @@ int ReadModules(int command,int argc, char **argv) {
 			memset(&pe32, 0, sizeof(pe32));
 			pe32.e32_magic[0]= 'P';
 			pe32.e32_magic[1]= 'E';
-			// this sets the cpu type - but doesn't seem necessary
-			//pe32.e32_cpu= 0x0300;
+			pe32.e32_cpu= 0x01a6; //SH4
 			pe32.e32_objcnt= e32hdr.e32_objcnt;
 			t=modules[i].time;
 			t<<=32;
@@ -676,7 +680,7 @@ int ReadModules(int command,int argc, char **argv) {
 		}
 		else if (command == COMMAND_UPDATE_MODULE) {
 			FILE *updateModuleInputFile;
-			struct _stat moduleStat;
+			//struct _stat moduleStat;
 
 
 			// if the current module matches the name continue
@@ -827,7 +831,7 @@ int ReadModules(int command,int argc, char **argv) {
 				printf("MapAndUnload problem = %d",GetLastError());
 				return 0;
 			}
-			printf("Successfully updated module.", fname);
+			printf("Successfully updated module %s", fname);
 		}
 	}
 	return 1;
@@ -961,7 +965,7 @@ int ReadFiles(int command,int argc, char **argv) {
 
 void usage(char *a) 
 	{
-	printf("Bysin "VERSION" by bysin (ported by guicide, updated by ryebrye)\n\n");
+	printf("Bysin %s by bysin (ported by guicide, updated by ryebrye, then DogP)\n\n", VERSION);
 	printf("%s <filename> <command>\n",a);
 	printf("Valid commands are:\n");
 	printf("  list                    - lists contents\n");
@@ -1045,8 +1049,12 @@ int main(int argc, char **argv)
 		}
 	if (!ReadRomHdr()) 
 		{
-		printf("Invalid ROM header\n");
-		return 0;
+		addroffs = -0x07FCE000; //ROMOFFSET=0 failed, retry with ROMOFFSET=-0x07FCE000 (used on system image)
+		if (!ReadRomHdr())
+			{
+			printf("Invalid ROM header\n");
+			return 0;
+			}
 		}
 
 	ReadModules(command,argc-3,argv+3);
